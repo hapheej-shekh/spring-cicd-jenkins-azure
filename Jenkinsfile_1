@@ -1,0 +1,80 @@
+pipeline {
+    agent any
+
+    environment {
+        ACR_NAME = 'myacr'   // your ACR name
+        ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
+        IMAGE_NAME = "${ACR_LOGIN_SERVER}/myapp"
+        VERSION = "v${env.BUILD_ID}"
+        AZ_CLI_IMAGE = 'mcr.microsoft.com/azure-cli'
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build App') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh """
+                docker build -t ${IMAGE_NAME}:${VERSION} .
+                """
+            }
+        }
+
+        stage('Login to Azure') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'AZURE_CLIENT_ID', variable: 'AZ_CLIENT_ID'),
+                    string(credentialsId: 'AZURE_CLIENT_SECRET', variable: 'AZ_CLIENT_SECRET'),
+                    string(credentialsId: 'AZURE_TENANT_ID', variable: 'AZ_TENANT_ID')
+                ]) {
+                    sh """
+                    docker run --rm -v ~/.azure:/root/.azure ${AZ_CLI_IMAGE} \
+                      az login --service-principal -u $AZ_CLIENT_ID -p $AZ_CLIENT_SECRET --tenant $AZ_TENANT_ID
+                    """
+                }
+            }
+        }
+
+        stage('Push Docker Image to ACR') {
+            steps {
+                sh """
+                az acr login --name ${ACR_NAME}
+                docker push ${IMAGE_NAME}:${VERSION}
+                """
+            }
+        }
+
+        stage('Deploy to AKS') {
+            steps {
+                sh """
+                az aks get-credentials --resource-group myResourceGroup --name myAKSCluster --overwrite-existing
+
+                sed "s|{{VERSION}}|${VERSION}|" k8s/deployment.yaml > k8s/deploy.final.yaml
+                kubectl apply -f k8s/deploy.final.yaml
+                kubectl apply -f k8s/service.yaml
+                kubectl rollout status deployment/myapp
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployed ${IMAGE_NAME}:${VERSION} to AKS!"
+        }
+        failure {
+            echo "❌ Deployment failed!"
+        }
+    }
+}

@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  jenkins:
+    image: jenkins-with-maven
+    container_name: jenkins-dind
+    user: root
+    ports:
+      - "8083:8080"      # Jenkins web
+      - "50001:50000"    # Agent communication
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    environment:
+      DOCKER_HOST: tcp://dind:2375
+    depends_on:
+      - dind
+
+  dind:
+    image: docker:dind
+    container_name: dind
+    privileged: true
+    expose:
+      - "2375"
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+
+volumes:
+  jenkins_home:
