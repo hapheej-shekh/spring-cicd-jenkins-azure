@@ -2,27 +2,28 @@ version: '3.8'
 
 services:
   jenkins:
-    image: jenkins-with-maven
-    container_name: jenkins-dind
-    user: root
+    image: azure-cli-kubectl                # Custom Jenkins image with required CLIs
+    container_name: jenkins-kubectl-server  # Avoids conflict with default Jenkins container
+    user: root                              # Required for Docker socket access
     ports:
-      - "8083:8080"      # Jenkins web
-      - "50001:50000"    # Agent communication
+      - "9092:8080"                       # Jenkins web UI
+      - "50000:50000"                     # JNLP agent communication
     volumes:
-      - jenkins_home:/var/jenkins_home
+      - jenkins_home:/var/jenkins_home   # Persistent Jenkins data
     environment:
-      DOCKER_HOST: tcp://dind:2375
+      DOCKER_HOST: tcp://docker-daemon:2375       # Tells Jenkins jobs to use `dind` as Docker host [Must match 'dind' service name]
     depends_on:
-      - dind
+      - docker-daemon                             # Ensures `dind` starts first [Must match the service name below]
 
-  dind:
-    image: docker:dind
-    container_name: dind
-    privileged: true
+  docker-daemon:                         # dind- Docker-in-Docker
+    image: docker:dind                   # Docker-in-Docker [shared Docker daemon that Jenkins uses to build]
+    container_name: jenkins-docker-daemon
+    privileged: true                     # Required to run Docker daemon inside container
     expose:
       - "2375"
     environment:
-      DOCKER_TLS_CERTDIR: ""
+      DOCKER_TLS_CERTDIR: ""             # Disables TLS; necessary for non-TLS communication
 
 volumes:
   jenkins_home:
+
